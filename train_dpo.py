@@ -136,7 +136,7 @@ def main():
         per_device_train_batch_size=2,
         gradient_accumulation_steps=8,
         dataloader_num_workers=2,
-        optim="paged_adamw_8bit",
+        optim="adamw_torch",
         learning_rate=5e-6,
         lr_scheduler_type="cosine",
         warmup_ratio=0.1,
