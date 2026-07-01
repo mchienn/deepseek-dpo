@@ -22,7 +22,9 @@ Chạy: python train_dpo.py
 """
 
 import json
+import subprocess
 import sys
+import threading
 import torch
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -154,7 +156,8 @@ def main():
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         logging_steps=5,
-        report_to="none",
+        report_to="tensorboard",
+        logging_dir=f"{OUTPUT_DIR}/logs",
     )
 
     trainer = DPOTrainer(
@@ -165,6 +168,17 @@ def main():
         eval_dataset=eval_ds,
         tokenizer=tokenizer,
     )
+
+    # ── TensorBoard server (auto) ────────────────────────
+    tb_thread = threading.Thread(
+        target=lambda: subprocess.run(
+            ["tensorboard", "--logdir", OUTPUT_DIR, "--host", "0.0.0.0", "--port", "8080"],
+            capture_output=True,
+        ),
+        daemon=True,
+    )
+    tb_thread.start()
+    print("    TensorBoard → http://localhost:8080")
 
     trainer.train()
 
