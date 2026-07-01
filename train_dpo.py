@@ -132,8 +132,6 @@ def main():
     dpo_config = DPOConfig(
         output_dir=OUTPUT_DIR,
         beta=0.1,
-        max_length=MAX_LEN,
-        max_prompt_length=512,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=8,
         dataloader_num_workers=2,
@@ -167,6 +165,8 @@ def main():
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         tokenizer=tokenizer,
+        max_length=MAX_LEN,
+        max_prompt_length=512,
     )
 
     # ── TensorBoard server (auto) ────────────────────────
