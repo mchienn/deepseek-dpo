@@ -13,8 +13,8 @@ Output:
   - ./dpo_adapter/        (LoRA adapter sau DPO, build trên nền final_adapter)
 
 Lưu ý:
-  - Base model load 4-bit NF4 (QLoRA) để giảm memory, giữ nguyên LoRA adapter từ SFT.
-  - Reference model = SFT adapter 4-bit NF4 frozen.
+  - Base model load bf16 (không quantize) — 32GB GPU dư sức.
+  - Reference model = SFT adapter frozen (bản copy riêng).
   - padding_side="right" (giống SFT).
 
 Chạy: python train_dpo.py
@@ -26,7 +26,7 @@ import sys
 import threading
 import torch
 from datasets import Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from trl import DPOTrainer, DPOConfig
 
@@ -95,17 +95,10 @@ def main():
     print(f"    Vocab size: {tokenizer.vocab_size:,}")
     print(f"    padding_side: {tokenizer.padding_side}")
 
-    # ── Model (4-bit NF4 QLoRA) ───────────────────────────
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
-    print("\n[3] Loading base model (4-bit NF4) ...")
+    # ── Model (bf16) ──────────────────────────────────────
+    print("\n[3] Loading base model (bf16) ...")
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        quantization_config=bnb_config,
         device_map="auto",
         torch_dtype=torch.bfloat16,
         attn_implementation="eager",
@@ -118,11 +111,10 @@ def main():
     model = PeftModel.from_pretrained(base_model, SFT_ADAPTER, is_trainable=True)
     model.print_trainable_parameters()
 
-    # ── Load SFT adapter (reference model — frozen) ───────
-    print("\n[5] Loading reference model (4-bit NF4, frozen) ...")
+    # ── Reference model (frozen, bản copy riêng) ──────────
+    print("\n[5] Loading reference model (bf16, frozen) ...")
     ref_base = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        quantization_config=bnb_config,
         device_map="auto",
         torch_dtype=torch.bfloat16,
         attn_implementation="eager",
