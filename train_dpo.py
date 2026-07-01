@@ -18,17 +18,34 @@ Lưu ý:
   - padding_side="right" (giống SFT).
 
 Chạy: python train_dpo.py
+
+Log file tự động ghi vào train_YYYYMMDD_HHMMSS.log
 """
 
 import json
+import os
 import subprocess
 import sys
 import threading
+import time
 import torch
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from trl import DPOTrainer, DPOConfig
+
+# ── Auto tee stdout/stderr to file ────────────────────
+_log_path = f"train_{time.strftime('%Y%m%d_%H%M%S')}.log"
+_log_fh = open(_log_path, "w", encoding="utf-8")
+_old_stdout_write = sys.stdout.write
+_old_stderr_write = sys.stderr.write
+def _tee_write(msg, old_write):
+    _log_fh.write(msg)
+    _log_fh.flush()
+    return old_write(msg)
+sys.stdout.write = lambda msg: _tee_write(msg, _old_stdout_write)
+sys.stderr.write = lambda msg: _tee_write(msg, _old_stderr_write)
+print(f"Log file: {os.path.abspath(_log_path)}", flush=True)
 
 MODEL_ID       = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 SFT_ADAPTER    = "./final_adapter"
