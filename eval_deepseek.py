@@ -323,7 +323,7 @@ def run_hf_inference(subtasks: list) -> list:
     tokenizer.padding_side = "left"  # required for batched generation
 
     model = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL, device_map="auto", dtype=torch.bfloat16, trust_remote_code=True
+        BASE_MODEL, device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True
     )
     model = PeftModel.from_pretrained(model, ADAPTER_DIR)
     model = model.merge_and_unload()
