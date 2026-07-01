@@ -1,0 +1,184 @@
+"""
+train_dpo.py
+============
+Bước 1 của lộ trình DPO — train DPO trên LoRA adapter đã SFT.
+
+Chạy trên Vast.ai instance đã dùng cho SFT (GPU 12-24GB).
+
+Input:
+  - dpo_pairs.jsonl       (từ build_dpo_pairs.py)
+  - ./final_adapter/      (LoRA adapter đã train ở SFT)
+
+Output:
+  - ./dpo_adapter/        (LoRA adapter sau DPO, build trên nền final_adapter)
+
+Lưu ý:
+  - Base model load bf16 (không quantize) để khớp với SFT training.
+  - Reference model = SFT adapter (ref_model=None → DPOTrainer dùng base).
+    Load thủ công PeftModel để đảm bảo reference đúng.
+  - padding_side="right" (giống SFT).
+
+Chạy: python train_dpo.py
+"""
+
+import json
+import sys
+import torch
+from datasets import Dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+from trl import DPOTrainer, DPOConfig
+
+MODEL_ID       = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+SFT_ADAPTER    = "./final_adapter"
+PAIRS_PATH     = "dpo_pairs.jsonl"
+OUTPUT_DIR     = "./dpo_checkpoints"
+FINAL_ADAPTER  = "./dpo_adapter"
+
+MAX_LEN = 768
+
+
+def format_prompt(subtask: str) -> str:
+    return (
+        f"<|im_start|>user\n{subtask}<|im_end|>\n"
+        f"<|im_start|>assistant\n"
+    )
+
+
+def validate_pairs(rows):
+    required = {"prompt", "chosen", "rejected"}
+    for i, r in enumerate(rows):
+        missing = required - set(r.keys())
+        if missing:
+            sys.exit(f"Row {i}: missing keys {missing}")
+        for k in ("chosen", "rejected"):
+            if not isinstance(r[k], str) or len(r[k]) == 0:
+                sys.exit(f"Row {i}: '{k}' is empty or not a string")
+
+
+def load_pairs(path: str) -> Dataset:
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            p = json.loads(line)
+            rows.append({
+                "prompt": format_prompt(p["prompt"]),
+                "chosen": p["chosen"],
+                "rejected": p["rejected"],
+            })
+    if not rows:
+        sys.exit(f"No pairs loaded from {path}")
+    validate_pairs(rows)
+    return Dataset.from_list(rows)
+
+
+def main():
+    print("=" * 60)
+    print("  DPO Fine-Tuning — DeepSeek-R1-Distill-Qwen-1.5B")
+    print("=" * 60)
+
+    # ── Load dataset ────────────────────────────────────────
+    print(f"\n[1] Loading pairs from {PAIRS_PATH} ...")
+    full_ds = load_pairs(PAIRS_PATH)
+    split = full_ds.train_test_split(test_size=0.1, seed=42)
+    train_ds, eval_ds = split["train"], split["test"]
+    print(f"    Train pairs: {len(train_ds)} | Eval pairs: {len(eval_ds)}")
+
+    # ── Tokenizer ──────────────────────────────────────────
+    print("\n[2] Loading tokenizer ...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_ID, trust_remote_code=True
+    )
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+    print(f"    Vocab size: {tokenizer.vocab_size:,}")
+    print(f"    padding_side: {tokenizer.padding_side}")
+
+    # ── Model (bf16 — giống SFT, không quantize) ──────────
+    print("\n[3] Loading base model (bf16) ...")
+    base_model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        attn_implementation="eager",
+        trust_remote_code=True,
+    )
+    base_model.enable_input_require_grads()
+
+    # ── Load SFT adapter (policy model — sẽ train tiếp) ───
+    print("\n[4] Loading SFT adapter (trainable) ...")
+    model = PeftModel.from_pretrained(base_model, SFT_ADAPTER, is_trainable=True)
+    model.print_trainable_parameters()
+
+    # ── Load SFT adapter (reference model — frozen) ───────
+    print("\n[5] Loading SFT adapter (reference, frozen) ...")
+    ref_base = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        attn_implementation="eager",
+        trust_remote_code=True,
+    )
+    ref_model = PeftModel.from_pretrained(ref_base, SFT_ADAPTER, is_trainable=False)
+    ref_model.eval()
+    for p in ref_model.parameters():
+        p.requires_grad = False
+    print("    Reference model frozen.")
+
+    # ── DPO training ───────────────────────────────────────
+    print("\n[6] Starting DPO training ...")
+    dpo_config = DPOConfig(
+        output_dir=OUTPUT_DIR,
+        beta=0.1,
+        max_length=MAX_LEN,
+        max_prompt_length=512,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=8,
+        dataloader_num_workers=2,
+        optim="paged_adamw_8bit",
+        learning_rate=5e-6,
+        lr_scheduler_type="cosine",
+        warmup_ratio=0.1,
+        weight_decay=0.01,
+        max_grad_norm=1.0,
+        num_train_epochs=5,
+        bf16=True,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        eval_strategy="steps",
+        eval_steps=20,
+        save_strategy="steps",
+        save_steps=20,
+        save_total_limit=2,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        logging_steps=5,
+        report_to="none",
+    )
+
+    trainer = DPOTrainer(
+        model=model,
+        ref_model=ref_model,
+        args=dpo_config,
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        tokenizer=tokenizer,
+    )
+
+    trainer.train()
+
+    # ── Save ──────────────────────────────────────────────
+    print(f"\n[7] Saving adapter to {FINAL_ADAPTER} ...")
+    trainer.save_model(FINAL_ADAPTER)
+    tokenizer.save_pretrained(FINAL_ADAPTER)
+
+    print("\n" + "=" * 60)
+    print("  DPO training complete.")
+    print(f"  Best checkpoint : {trainer.state.best_model_checkpoint}")
+    print(f"  Best eval loss  : {trainer.state.best_metric:.4f}")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
