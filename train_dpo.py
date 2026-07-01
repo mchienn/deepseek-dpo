@@ -129,7 +129,7 @@ def main():
     print("\n[3] Loading base model (bf16) ...")
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        device_map="auto",
+        device_map="cuda:0",
         torch_dtype=torch.bfloat16,
         attn_implementation="eager",
         trust_remote_code=True,
@@ -145,7 +145,7 @@ def main():
     print("\n[5] Loading reference model (bf16, frozen) ...")
     ref_base = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        device_map="auto",
+        device_map="cuda:0",
         torch_dtype=torch.bfloat16,
         attn_implementation="eager",
         trust_remote_code=True,
@@ -154,6 +154,7 @@ def main():
     ref_model.eval()
     for p in ref_model.parameters():
         p.requires_grad = False
+    ref_model = ref_model.to("cuda:0")
     torch.cuda.empty_cache()
     print("    Reference model frozen.")
 
