@@ -119,7 +119,6 @@ def main():
         output_dir=OUTPUT_DIR,
         beta=0.15,                    # Lower than v3 (0.2) — real pairs need stronger signal
         max_length=MAX_LEN,
-        max_prompt_length=256,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=16,  # Effective batch = 16
         dataloader_num_workers=2,
