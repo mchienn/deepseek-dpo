@@ -13,9 +13,8 @@ Output:
   - ./dpo_adapter/        (LoRA adapter sau DPO, build trên nền final_adapter)
 
 Lưu ý:
-  - Base model load bf16 (không quantize) để khớp với SFT training.
-  - Reference model = SFT adapter (ref_model=None → DPOTrainer dùng base).
-    Load thủ công PeftModel để đảm bảo reference đúng.
+  - Base model load 4-bit NF4 (QLoRA) để giảm memory, giữ nguyên LoRA adapter từ SFT.
+  - Reference model = SFT adapter 4-bit NF4 frozen.
   - padding_side="right" (giống SFT).
 
 Chạy: python train_dpo.py
@@ -27,7 +26,7 @@ import sys
 import threading
 import torch
 from datasets import Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 from trl import DPOTrainer, DPOConfig
 
@@ -37,7 +36,7 @@ PAIRS_PATH     = "dpo_pairs.jsonl"
 OUTPUT_DIR     = "./dpo_checkpoints"
 FINAL_ADAPTER  = "./dpo_adapter"
 
-MAX_LEN = 768
+MAX_LEN = 512
 
 
 def format_prompt(subtask: str) -> str:
@@ -96,13 +95,20 @@ def main():
     print(f"    Vocab size: {tokenizer.vocab_size:,}")
     print(f"    padding_side: {tokenizer.padding_side}")
 
-    # ── Model (bf16 — giống SFT, không quantize) ──────────
-    print("\n[3] Loading base model (bf16) ...")
+    # ── Model (4-bit NF4 QLoRA) ───────────────────────────
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+    print("\n[3] Loading base model (4-bit NF4) ...")
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
+        quantization_config=bnb_config,
         device_map="auto",
         torch_dtype=torch.bfloat16,
-        attn_implementation="eager",
+        attn_implementation="flash_attention_2",
         trust_remote_code=True,
     )
     base_model.enable_input_require_grads()
@@ -113,12 +119,13 @@ def main():
     model.print_trainable_parameters()
 
     # ── Load SFT adapter (reference model — frozen) ───────
-    print("\n[5] Loading SFT adapter (reference, frozen) ...")
+    print("\n[5] Loading reference model (4-bit NF4, frozen) ...")
     ref_base = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
+        quantization_config=bnb_config,
         device_map="auto",
         torch_dtype=torch.bfloat16,
-        attn_implementation="eager",
+        attn_implementation="flash_attention_2",
         trust_remote_code=True,
     )
     ref_model = PeftModel.from_pretrained(ref_base, SFT_ADAPTER, is_trainable=False)
@@ -133,16 +140,17 @@ def main():
         output_dir=OUTPUT_DIR,
         beta=0.1,
         max_length=MAX_LEN,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=8,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=16,
         dataloader_num_workers=2,
         optim="adamw_torch",
         learning_rate=5e-6,
         lr_scheduler_type="cosine",
         warmup_ratio=0.1,
-        weight_decay=0.01,
+        weight_decay=0.0,
         max_grad_norm=1.0,
-        num_train_epochs=5,
+        max_prompt_length=256,
+        num_train_epochs=3,
         bf16=True,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
