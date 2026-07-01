@@ -2,17 +2,17 @@
 
 ## 1. Executive Summary
 
-| Metric | SFT Baseline | DPO v1 | DPO v2 | DPO v3 (latest) | Target |
-|--------|:-----------:|:------:|:------:|:---------------:|:------:|
-| Pass Rate | 91.04% | 90.47% | 90.47% | 91.04% | **>91.5%** |
-| Avg Score | 0.8998 | 0.8945 | 0.8945 | 0.8998 | **>0.905** |
-| Score = 1.0 | 3,676 | 3,398 | 3,398 | 3,676 | **>3,800** |
-| Invalid JSON | 38 | 69 | 69 | 38 | **<20** |
+| Metric | SFT Baseline | DPO v1/v2 | DPO v3 | DPO v4 (training) | Target |
+|--------|:-----------:|:---------:|:------:|:-----------------:|:------:|
+| Pass Rate | 91.04% | 90.47% | 90.47% | **in progress** | **>91.5%** |
+| Avg Score | 0.8998 | 0.8945 | 0.8945 | **in progress** | **>0.905** |
+| Score = 1.0 | 3,676 | 3,398 | 3,398 | **in progress** | **>3,800** |
+| Invalid JSON | 38 | 69 | 69 | **in progress** | **<20** |
 | Test samples | 9,427 | 9,427 | 9,427 | 9,427 | **10,050** |
 
-**DPO v1/v2 = regression.** Pass rate dropped −0.57%, invalid JSON doubled, Score=1.0 cases dropped by 278.
+**DPO v1/v2/v3 = regression.** All versions scored 90.47% (worse than SFT 91.04%). Invalid JSON doubled (38→69), Score=1.0 dropped by 278. DPO v3 "identical to SFT" was a measurement artifact — eval was loading wrong adapter.
 
-**DPO v3 = identical to SFT.** Training ran (loss decreased 0.70→0.11, weights changed) but downstream eval shows no difference. Suggests **preference pairs lack informative signal** for the full test distribution.
+**DPO v4 (in progress):** Replaced synthetic corruptions with **2,578 real model errors** as rejected pairs. Training on Vast RTX 5090 at step 352/507 with eval_loss=0.41, rewards/acc=79.3%.
 
 ---
 
@@ -30,11 +30,16 @@
 
 #### Version History
 
+Note: DPO v3 table row shows 91.04% but this was from eval with wrong adapter loading (SFT weights instead of DPO). Actual DPO v3 result is 90.47%, identical to v1/v2.
+
+#### Version History
+
 | Version | Files | Key Features | Result |
 |---------|-------|-------------|--------|
 | v1 | `build_dpo_pairs.py` `train_dpo.py` | 4 sources + synthetic, wrap_pair() with reasoning, MAX_LEN=512, epochs=3, beta=0.1 | 90.47% (regression) |
 | v2 | train_dpo_v2.py | Same approach, separate copy | 90.47% |
 | v3 | Updated train_dpo.py | MAX_LEN=1024, epochs=2, beta=0.2, removed wrap_pair() | 91.04% (identical to SFT) |
+| v4 | `build_dpo_pairs_v4.py` `train_dpo_v4.py` | Real error mining (86% real pairs), beta=0.15, LR=1e-5, epochs=3 | **Training in progress** |
 
 #### Bugs Fixed (v3)
 
@@ -56,6 +61,75 @@
 - Adapter transfer: base64 SSH pipe → hf-mirror wget
 
 ---
+
+### 2.3. DPO v4 — Real Error Preference Optimization
+
+**Key Innovation:** Instead of synthetic corruptions, mine actual model inference errors as rejected pairs.
+
+| Aspect | v1-v3 | v4 |
+|--------|-------|----|
+| Source of rejected | 100% synthetic corruption | **86% real model errors** from eval |
+| Real error pairs | 0 | 2,578 |
+| Synthetic pairs | 2,000+ | 382 (14%, for diversity) |
+| Validity pairs | 0 | 38 (invalid JSON → valid JSON) |
+| Pair selection | Random | Stratified: 65% near-miss (0.70-0.95), 40% partial (0.40-0.70), 20% failures (<0.40) |
+| Mean score of real pairs | N/A | 0.8040 |
+
+#### Files Created
+
+| File | Description |
+|------|-------------|
+| `build_dpo_pairs_v4.py` | Mines hard negatives from `eval_deepseek_result.xlsx`. 3 sources: real_error, validity, synthetic. |
+| `train_dpo_v4.py` | Updated hyperparams: beta=0.15 (lower for harder pairs), LR=1e-5 (higher for informative data), epochs=3 |
+
+#### Training Configuration (v4)
+
+| Hyperparameter | v3 | v4 | Rationale |
+|---------------|:--:|:--:|-----------|
+| beta | 0.2 | 0.15 | Lower beta = more aggressive learning; real pairs need stronger signal |
+| Learning rate | 5e-6 | 1e-5 | Real data is more informative, supports higher LR |
+| Epochs | 2 | 3 | More diverse data needs more training |
+| Effective batch | 16 | 16 | Same |
+| Eval steps | 20 | 10 | More frequent monitoring |
+
+#### Training Progress (Vast RTX 5090)
+
+DPO v4 training started 2026-07-01 on `vast7` (RTX 5090, 32GB). Intermediate metrics from run:
+
+| Step | Epoch | eval_loss | rewards/acc | rewards/margin | logps/chosen | logps/rejected | Note |
+|:----:|:-----:|:---------:|:-----------:|:--------------:|:------------:|:--------------:|------|
+| 5 | 0.03 | — | 33.8% | 0.006 | -63.63 | -55.09 | Model prefers rejected initially |
+| 30 | 0.18 | 0.631 | 71.1% | 0.149 | -60.65 | -55.81 | Rapid improvement |
+| 70 | 0.42 | 0.541 | 74.0% | 0.526 | -58.80 | -56.48 | Margins widening |
+| 150 | 0.89 | 0.450 | 78.3% | 0.949 | -53.99 | -54.49 | **logps flip** — chosen > rejected |
+| 230 | 1.36 | 0.435 | 77.6% | 1.281 | -54.14 | -56.85 | Gap = 2.71 nats |
+| 310 | 1.84 | 0.413 | 79.3% | 1.466 | -57.82 | -61.77 | Gap = 3.95 nats |
+
+Key observation: Model went from preferring rejected (logps/chosen -63.63 vs -55.09 at step 5) to strongly preferring chosen ( -57.82 vs -61.77 at step 310), a 5.8 nat swing.
+
+#### Pair Quality Verification
+
+Sample real_error pairs from `dpo_pairs_v4.jsonl`:
+
+```
+Prompt: Nút 'Tải lên' được tắt (disabled) khi không có tệp nào được chọn
+Chosen:   {"action": "verify", "selector": "nút 'Tải lên'", "value": "", "expected": {"enabled": false}}
+Rejected: {"action": "verify", "selector": "'Tải lên' button", "value": "", "expected": {"enabled": false}}
+# Difference: selector translation nuance — model used English button name
+
+Prompt: Verify the comparison table has title 'Product Comparison' with font size 32px
+Chosen:   {"action": "verify", "selector": "comparison table title", "value": "", "expected": {"text-content": "Product Comparison", "font-size": "32px"}}
+Rejected: {"action": "verify", "selector": "comparison table", "value": "", "expected": {"title": "Product Comparison", "font-size": "32px"}}
+# Difference: model used wrong key "title" instead of "text-content"
+
+Prompt: Kiểm tra tiêu đề modal 'Thông báo quan trọng' có độ đậm chữ 600 và màu #333333
+Chosen:   {"action": "verify", ..., "expected": {"text-content": "Thông báo quan trọng", "font-weight": "600", "color": "#333333"}}
+Rejected: {"action": "verify", ..., "expected": {"font-weight": "600", "color": "#333333"}}
+# Difference: model dropped "text-content" key entirely
+```
+
+These are exactly the kind of subtle, real-world errors that DPO should learn from — wrong keys, missing properties, selector differences.
+
 
 ## 3. Root Cause Analysis
 
@@ -156,16 +230,24 @@ Based on systematic analysis + literature review (15+ papers), ordered by expect
 
 ---
 
-## 6. Recommended Next Step
+## 6. Next Steps
 
-**Immediate (highest ROI):** Fix preference data quality using real model errors from `eval_checkpoint.jsonl` instead of synthetic corruptions.
+### ✅ Completed (v4)
+- [x] `build_dpo_pairs_v4.py` — 2,578 real error pairs mined from eval (Phase 1.1, 1.2)
+- [x] 38 validity pairs for invalid JSON (Phase 1.4)
+- [x] `train_dpo_v4.py` — beta=0.15, LR=1e-5, epochs=3
+- [x] Training running on Vast RTX 5090 (step 352/507 at last check)
+- [x] Auto-eval queued to compare vs SFT baseline
 
-Goal: Go from 0 pairs using real model errors (current) to **>500 pairs with model-output-as-rejected**.
+### 🔜 Once Training Completes
+1. Check eval result — if Pass rate > 91.04%, v4 is successful
+2. Push adapter to HF Hub
+3. Update report with final metrics
 
-This requires:
-1. Parse `eval_checkpoint.jsonl` for all 9,427 samples
-2. For each score < 0.95, create pair (gold_chosen, model_rejected)
-3. Filter to keep most informative pairs (score gap 0.05-0.30)
-4. Run DPO with these real-error pairs + reduced synthetic corruption
-
-Estimated timeline: **2-3 days** for full implementation + training + eval cycle.
+### 🔮 If v4 Doesn't Beat SFT
+| Priority | Action | Expected Impact | Effort |
+|:--------:|--------|----------------|--------|
+| 1 | **Iterative DPO** (Phase 2.2) — train → sample → collect → retrain | High | 2d |
+| 2 | **Add NLL term** (Phase 3.1) — prevent chosen probability collapse | Medium | 1d |
+| 3 | **Grid search beta** (Phase 2.3) — try [0.05, 0.1, 0.3, 0.5] | Medium | 1d |
+| 4 | **D-optimal selection** (Phase 1.3) — span complementary failure modes | Medium-High | 2d |
