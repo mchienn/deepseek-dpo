@@ -1,0 +1,13 @@
+# Large model weights
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Checkpoints
+dpo_checkpoints/
+
+# Training logs
+*.log
+test_tee.log
+tb.log

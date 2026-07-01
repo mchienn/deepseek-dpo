@@ -32,7 +32,7 @@ from sentence_transformers import SentenceTransformer, util
 # ─────────────────────────────────────────────────────────────────
 
 BASE_MODEL     = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
-ADAPTER_DIR    = "./final_adapter"
+ADAPTER_DIR = "./dpo_adapter"
 TEST_FILE      = "test_cleaned.xlsx"
 OUTPUT_FILE    = "eval_deepseek_result.xlsx"
 THRESHOLD      = 0.7
@@ -318,7 +318,7 @@ def run_hf_inference(subtasks: list) -> list:
     print(f"  {len(remaining):,} remaining (batch={HF_BATCH}) ...")
 
     # ── Load model ────────────────────────────────────────────
-    tokenizer = AutoTokenizer.from_pretrained(ADAPTER_DIR, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(ADAPTER_DIR)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"  # required for batched generation
 
