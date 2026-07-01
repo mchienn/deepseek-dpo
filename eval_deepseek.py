@@ -326,8 +326,9 @@ def run_hf_inference(subtasks: list) -> list:
         BASE_MODEL, device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True
     )
     model = PeftModel.from_pretrained(model, ADAPTER_DIR)
-    model = model.merge_and_unload()
     model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
 
     # Get <|im_end|> token ID so model stops early
     im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
