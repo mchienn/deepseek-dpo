@@ -32,7 +32,7 @@ from sentence_transformers import SentenceTransformer, util
 # ─────────────────────────────────────────────────────────────────
 
 BASE_MODEL     = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
-ADAPTER_DIR = "./dpo_adapter"
+ADAPTER_DIR    = "./dpo_adapter"
 TEST_FILE      = "test_cleaned.xlsx"
 OUTPUT_FILE    = "eval_deepseek_result.xlsx"
 THRESHOLD      = 0.7
