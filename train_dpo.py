@@ -108,7 +108,7 @@ def main():
         quantization_config=bnb_config,
         device_map="auto",
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
+        attn_implementation="eager",
         trust_remote_code=True,
     )
     base_model.enable_input_require_grads()
@@ -125,7 +125,7 @@ def main():
         quantization_config=bnb_config,
         device_map="auto",
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
+        attn_implementation="eager",
         trust_remote_code=True,
     )
     ref_model = PeftModel.from_pretrained(ref_base, SFT_ADAPTER, is_trainable=False)
