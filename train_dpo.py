@@ -154,6 +154,7 @@ def main():
     ref_model.eval()
     for p in ref_model.parameters():
         p.requires_grad = False
+    torch.cuda.empty_cache()
     print("    Reference model frozen.")
 
     # ── DPO training ───────────────────────────────────────
@@ -162,7 +163,6 @@ def main():
         output_dir=OUTPUT_DIR,
         beta=0.2,
         max_length=MAX_LEN,
-        max_prompt_length=256,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=16,
         dataloader_num_workers=2,
@@ -196,6 +196,7 @@ def main():
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         processing_class=tokenizer,
+        max_prompt_length=256,
     )
 
     # ── TensorBoard server (auto) ────────────────────────
