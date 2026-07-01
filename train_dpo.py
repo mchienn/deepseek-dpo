@@ -20,6 +20,19 @@ Lưu ý:
 Chạy: python train_dpo.py
 
 Log file tự động ghi vào train_YYYYMMDD_HHMMSS.log
+
+# ── Inference note ────────────────────────────────────────────────────────
+# When running eval_deepseek.py on the DPO adapter, set max_new_tokens=512
+# (not 256). The 622 missing samples from eval are longer subtasks that
+# hit the generation length limit. Use the following inference config:
+#
+#   pipe = pipeline("text-generation", model="./dpo_adapter",
+#                   max_new_tokens=512, temperature=0.0,
+#                   do_sample=False)
+#
+# Also wrap each sample in try/except with a 30-second timeout so a single
+# long sample cannot block the entire eval run.
+# ─────────────────────────────────────────────────────────────────────────
 """
 
 import json
@@ -53,7 +66,7 @@ PAIRS_PATH     = "dpo_pairs.jsonl"
 OUTPUT_DIR     = "./dpo_checkpoints"
 FINAL_ADAPTER  = "./dpo_adapter"
 
-MAX_LEN = 512
+MAX_LEN = 1024
 
 
 def format_prompt(subtask: str) -> str:
@@ -147,8 +160,9 @@ def main():
     print("\n[6] Starting DPO training ...")
     dpo_config = DPOConfig(
         output_dir=OUTPUT_DIR,
-        beta=0.1,
+        beta=0.2,
         max_length=MAX_LEN,
+        max_prompt_length=256,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=16,
         dataloader_num_workers=2,
@@ -158,7 +172,7 @@ def main():
         warmup_ratio=0.1,
         weight_decay=0.0,
         max_grad_norm=1.0,
-        num_train_epochs=3,
+        num_train_epochs=2,
         bf16=True,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
