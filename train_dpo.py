@@ -149,7 +149,6 @@ def main():
         warmup_ratio=0.1,
         weight_decay=0.0,
         max_grad_norm=1.0,
-        max_prompt_length=256,
         num_train_epochs=3,
         bf16=True,
         gradient_checkpointing=True,
