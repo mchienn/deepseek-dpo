@@ -35,3 +35,7 @@ The local non-GPU gates were run on 2026-07-16:
 - `python -m py_compile` passed for all V5 Python entry points, and `bash -n` passed for both Vast V5 scripts.
 
 The local runtime smoke test for `train_dpo_v5.py --help` is intentionally not a GPU readiness result: this workstation has Python 3.13 with PyArrow 18.1.0, while its installed `datasets` calls `pyarrow.json_`. The V5 Vast setup pins PyArrow 19.0.1, whose official API includes `pyarrow.json_`.
+
+## Vast execution status
+
+Attempted on 2026-07-16 after pushing branch `codex/dpo-v5-reproducible`. The configured Vast SSH endpoint closed the connection on port 3831 before authentication or any remote command ran. No checkout, dependency installation, data upload, GPU inference, training, or evaluation was performed on the remote instance. Resume from the required run order only after the instance is active and its SSH endpoint is updated/verified.
