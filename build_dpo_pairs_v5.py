@@ -1,4 +1,4 @@
-﻿"""Build leakage-safe DPO v5 pairs from SFT errors on dpo_mine only."""
+"""Build leakage-safe DPO v5 pairs from SFT errors on dpo_mine only."""
 from __future__ import annotations
 
 import argparse
@@ -23,6 +23,17 @@ def canonical(value: object) -> str:
     return json.dumps(parsed, ensure_ascii=False, sort_keys=True) if parsed is not None else str(value).strip()
 
 
+def format_chosen(model_output: object, gold_json: str, chosen_format: str) -> str:
+    """Keep the deployed completion structure while replacing only its JSON answer."""
+    if chosen_format == "json":
+        return gold_json
+    output = str(model_output)
+    marker = "</think>"
+    end = output.find(marker)
+    if end < 0:
+        return gold_json
+    return output[: end + len(marker)].rstrip() + "\n" + gold_json
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evaluation", required=True, help="SFT result workbook produced only on dpo_mine")
@@ -33,6 +44,7 @@ def main() -> None:
     parser.add_argument("--partial-rate", type=float, default=0.20)
     parser.add_argument("--fail-rate", type=float, default=0.10)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--chosen-format", choices=("json", "preserve_think"), default="preserve_think")
     args = parser.parse_args()
     if abs(args.near_rate + args.partial_rate + args.fail_rate - 1.0) > 1e-9:
         raise SystemExit("sampling rates must sum to 1")
@@ -61,8 +73,9 @@ def main() -> None:
             rejected = str(row["Model"]).strip()
             if chosen_obj is None or not rejected:
                 continue
-            chosen = json.dumps(chosen_obj, ensure_ascii=False, sort_keys=True)
-            if canonical(rejected) == chosen:
+            gold_json = json.dumps(chosen_obj, ensure_ascii=False, sort_keys=True)
+            chosen = format_chosen(rejected, gold_json, args.chosen_format)
+            if canonical(rejected) == canonical(chosen):
                 continue
             triple = (str(row["Sub Task"]), chosen, rejected)
             if triple in seen:
@@ -75,7 +88,7 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     output = run_dir / "pairs.jsonl"
     output.write_text("".join(json.dumps(pair, ensure_ascii=False) + "\n" for pair in pairs), encoding="utf-8")
-    summary = {"pairs": len(pairs), "sources": dict(Counter(pair["source"] for pair in pairs)), "evaluation_rows": len(eval_df), "mine_rows": len(mine_df)}
+    summary = {"pairs": len(pairs), "sources": dict(Counter(pair["source"] for pair in pairs)), "chosen_format": args.chosen_format, "chosen_with_think": sum("</think>" in pair["chosen"] for pair in pairs), "evaluation_rows": len(eval_df), "mine_rows": len(mine_df)}
     write_json(run_dir / "pair_summary.json", summary)
     create_manifest(run_dir, kind="v5_pairs", config={**vars(args), **summary}, inputs={"evaluation": evaluation, "mine_file": mine_file})
     print(json.dumps(summary, ensure_ascii=False))

@@ -1,4 +1,4 @@
-﻿"""Validate v5 split isolation and DPO pair JSON integrity."""
+"""Validate v5 split isolation and DPO pair JSON integrity."""
 from __future__ import annotations
 
 import argparse
@@ -32,7 +32,8 @@ def main() -> None:
             triple = tuple(item.get(field, "") for field in ("prompt", "chosen", "rejected"))
             if not all(triple) or triple in seen:
                 raise SystemExit(f"invalid or duplicate pair at line {number}")
-            json.loads(item["chosen"])
+            chosen_json = item["chosen"].rsplit("</think>", 1)[-1].strip()
+            json.loads(chosen_json)
             if item["chosen"] == item["rejected"]:
                 raise SystemExit(f"identical chosen/rejected at line {number}")
             seen.add(triple)
