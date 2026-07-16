@@ -43,3 +43,22 @@ Next candidate requirements:
 - use evaluator `Full Output` to preserve the SFT completion structure in chosen/rejected pairs;
 - reduce optimization strength (one epoch and lower LR/beta); and
 - gate on the untouched `dpo_validation` comparison before any `final_test` run.
+
+## Candidate 02 — corrected completion format
+
+Candidate 02 used `Full Output` for rejected completions, preserved the `<think>...</think>` prefix in all 1,569 chosen completions, and reduced optimization to one epoch with beta 0.01 and learning rate 1e-6. The pair and split validators passed before training.
+
+| Metric | SFT baseline | DPO candidate 02 | Delta |
+| --- | ---: | ---: | ---: |
+| Pass rate | 91.46% | 90.21% | -1.25 pp |
+| Average score | 0.9014 | 0.8940 | -0.0074 |
+| Invalid JSON | 11 | 10 | -1 |
+| Key score | 0.9287 | 0.9220 | -0.0067 |
+| Value score | 0.8741 | 0.8659 | -0.0082 |
+| Perfect outputs | 706 | 674 | -32 |
+
+Decision: **reject candidate 02 for final test**. The format fix eliminated the catastrophic regression from candidate 01 and slightly improved JSON validity, but it did not exceed the SFT baseline on the pre-registered primary metrics.
+
+## Remaining work
+
+The experimental gate is complete for candidates 01 and 02, but the overall DPO-improvement goal is not complete: neither candidate qualifies for final-test evaluation or deployment. Before another GPU run, implement and validate a conservative preference objective that anchors the SFT behavior (for example, DPO plus a supervised/NLL anchor), then run one controlled validation candidate. Keep `final_test` untouched until a candidate exceeds the SFT validation baseline.
