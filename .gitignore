@@ -11,3 +11,7 @@ dpo_checkpoints/
 *.log
 test_tee.log
 tb.log
+
+# Reproducible run outputs
+runs/
+data/v5/
