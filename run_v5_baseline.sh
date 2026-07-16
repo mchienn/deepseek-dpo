@@ -4,7 +4,7 @@ set -euo pipefail
 WORKDIR="${WORKDIR:-/workspace/deepseek-dpo}"
 RUN_ID="${1:?usage: $0 <run-id> [adapter-dir]}"
 ADAPTER="${2:-$WORKDIR/final_adapter}"
-BATCH_SIZE="${BATCH_SIZE:-64}"
+BATCH_SIZE="${BATCH_SIZE:-128}"
 cd "$WORKDIR"
 source /venv/main/bin/activate
 force_args=()
