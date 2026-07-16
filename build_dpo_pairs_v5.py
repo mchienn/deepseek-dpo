@@ -50,7 +50,7 @@ def main() -> None:
         raise SystemExit("sampling rates must sum to 1")
     evaluation, mine_file = Path(args.evaluation), Path(args.mine_file)
     eval_df, mine_df = pd.read_excel(evaluation), pd.read_excel(mine_file)
-    required = {"Sub Task", "Step Object", "Model", "AVG Score", "Valid_JSON"}
+    required = {"Sub Task", "Step Object", "Model", "Full Output", "AVG Score", "Valid_JSON"}
     if not required.issubset(eval_df.columns):
         raise SystemExit(f"evaluation missing columns: {sorted(required - set(eval_df.columns))}")
     mine_keys = {(str(row["Sub Task"]), canonical(row["Step Object"])) for _, row in mine_df.iterrows()}
@@ -70,7 +70,7 @@ def main() -> None:
         count = max(1, round(len(frame) * rate))
         for _, row in frame.sample(n=min(count, len(frame)), random_state=args.seed).iterrows():
             chosen_obj = parse_json(row["Step Object"])
-            rejected = str(row["Model"]).strip()
+            rejected = str(row["Full Output"]).strip()
             if chosen_obj is None or not rejected:
                 continue
             gold_json = json.dumps(chosen_obj, ensure_ascii=False, sort_keys=True)

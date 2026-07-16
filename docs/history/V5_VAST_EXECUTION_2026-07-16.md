@@ -35,11 +35,11 @@ Machine-readable comparison: `runs/v5-dpo-b050-lr5e6-s42-validation/comparison_v
 
 The training objective was saturated on the pair-held-out split (best loss 0.0012), while task validation regressed severely. Two direct code/data observations explain why a new run must not reuse this configuration unchanged:
 
-1. `build_dpo_pairs_v5.py` writes `chosen` as the gold JSON alone, while the deployed task contract expects an assistant completion with `<think>...</think>` followed by JSON. This output-format mismatch is a training-data defect.
+1. `build_dpo_pairs_v5.py` originally used evaluator column `Model` (the JSON-only scoring field) and writes `chosen` as the gold JSON alone, while the deployed task contract expects an assistant completion with `<think>...</think>` followed by JSON. This output-format mismatch is a training-data defect.
 2. Candidate 01 applies 3 epochs at 5e-6 to only 1,569 pairs, 93.8% of which are near-misses. The near-zero pair loss plus the task regression is evidence of over-optimization for this narrow preference set.
 
 Next candidate requirements:
 
-- preserve the SFT completion structure in chosen/rejected pairs;
+- use evaluator `Full Output` to preserve the SFT completion structure in chosen/rejected pairs;
 - reduce optimization strength (one epoch and lower LR/beta); and
 - gate on the untouched `dpo_validation` comparison before any `final_test` run.
